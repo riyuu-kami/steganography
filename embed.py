@@ -47,7 +47,7 @@ def decompress_idat_data(idat_data):
     return zlib.decompress(idat_data)
 
 def embed_message(pixels, message):
-    random.seed(42)  # Set a seed to ensure reproducibility
+    random.seed(100)  # Set a seed to ensure reproducibility
     message += '\0'  # null terminator
     message_bits = ''.join(format(ord(c), '08b') for c in message)  # Converts each character to binary
     
