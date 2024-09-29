@@ -4,7 +4,7 @@ from embed import read_png_signature, extract_png_info, decompress_idat_data
 
 # Message extraction function compatible with distributed embedding
 def extract_message_pixels(pixels, message_length):
-    random.seed(42)  # Use the same seed as in the embedding function
+    random.seed(100)  # Use the same seed as in the embedding function
 
     total_pixels = len(pixels)
     # Recompute the indices used for embedding
