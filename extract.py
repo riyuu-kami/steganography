@@ -1,5 +1,4 @@
-import zlib
-import random
+import random
 from embed import read_png_signature, extract_png_info, decompress_idat_data
 
 # Message extraction function compatible with distributed embedding
