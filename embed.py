@@ -42,7 +42,7 @@ def extract_png_info(filename):
 
     return width, height, idat_data
 
-# Function to decompress IDAT data
+
 def decompress_idat_data(idat_data):
     return zlib.decompress(idat_data)
 
