@@ -51,11 +51,7 @@ def embed_message(pixels, message):
     message += '\0'  # null terminator
     message_bits = ''.join(format(ord(c), '08b') for c in message)  # Converts each character to binary
     
-    pixel_array = bytearray(pixels)
-
-    if len(message_bits) > len(pixel_array):
-        raise ValueError("Message is too long to embed in the image.")
-
+    pixel_array = bytearray(pixels)
     total_pixels = len(pixel_array)
     indices = random.sample(range(total_pixels), len(message_bits))  # Randomly select pixel indices to modify
 
