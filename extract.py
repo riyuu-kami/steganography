@@ -7,7 +7,7 @@ def extract_message_pixels(pixels, message_length):
 
     total_pixels = len(pixels)
     # Recompute the indices used for embedding
-    indices = random.sample(range(total_pixels), message_length * 8)  # message_length * 8 bits in total
+    indices = random.sample(range(total_pixels), message_length * 8) 
 
     message_bits = ''
     
