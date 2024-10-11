@@ -47,11 +47,12 @@ def decompress_idat_data(idat_data):
     return zlib.decompress(idat_data)
 
 def embed_message(pixels, message):
-    random.seed(100)  # Set a seed to ensure reproducibility
+    random.seed(100)
     message += '\0'  # null terminator
     message_bits = ''.join(format(ord(c), '08b') for c in message)  # Converts each character to binary
     
-    pixel_array = bytearray(pixels)
+    pixel_array = bytearray(pixels)
+
     total_pixels = len(pixel_array)
     indices = random.sample(range(total_pixels), len(message_bits))  # Randomly select pixel indices to modify
 
@@ -120,7 +121,7 @@ def main():
 
         embedded_pixels = embed_message(decompressed_pixels, secret_message)
 
-        save_png(output_filename, embedded_pixels, width, height)  # Save to the new file
+        save_png(output_filename, embedded_pixels, width, height)
 
         calculate_embedding_capacity(width, height)
 
