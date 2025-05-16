@@ -1,134 +1,150 @@
 import zlib
 import random
 
-# Function to read the PNG signature
-def read_png_signature(filename):
-    with open(filename, 'rb') as png_file:
-        signature = png_file.read(8)
-        
-        if signature != b'\x89PNG\r\n\x1A\n':
-            raise ValueError("Not a valid PNG file")
-        
-        print("Valid PNG signature found.")
+def paeth_predictor(a, b, c):
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+        return a
+    elif pb <= pc:
+        return b
+    else:
+        return c
 
-# Function to extract PNG width, height, and IDAT data
-def extract_png_info(filename):
-    width, height = None, None
-    idat_data = b''
+def unfilter_scanlines(data, width, height, bpp=3):
+    # bpp = bytes per pixel (3 for RGB 8-bit)
+    stride = width * bpp
+    result = bytearray()
+    i = 0
+    for f in range(height): # loop over each scanline
+        filter_type = data[i] # each scanline starts with one byte indicating the filter type
+        i += 1 # i is incremented to move past filter byte.
+        scanline = data[i:i+stride] # extracts the filtered scanline pixel data
+        i += stride
+        recon = bytearray(scanline)
+        if filter_type == 0:
+            # None
+            pass
+        elif filter_type == 1:
+            # Sub: reconstruct by adding previous bytes from same scanline.
+            for x in range(bpp, stride):
+                recon[x] = (recon[x] + recon[x - bpp]) & 0xFF
+        elif filter_type == 2:
+            # Up: add values from previous scanline at same positions.
+            prev = result[-stride:] if len(result) >= stride else bytearray(stride)
+            for x in range(stride):
+                recon[x] = (recon[x] + prev[x]) & 0xFF
+        elif filter_type == 3:
+            # Average: use average of left (same scanline) and up (previous scanline).
+            prev = result[-stride:] if len(result) >= stride else bytearray(stride)
+            for x in range(stride):
+                left = recon[x - bpp] if x >= bpp else 0
+                up = prev[x]
+                recon[x] = (recon[x] + ((left + up) >> 1)) & 0xFF
+        elif filter_type == 4:
+            # Paeth: use Paeth predictor to compute each byte.
+            prev = result[-stride:] if len(result) >= stride else bytearray(stride)
+            for x in range(stride):
+                left = recon[x - bpp] if x >= bpp else 0
+                up = prev[x]
+                up_left = prev[x - bpp] if x >= bpp else 0
+                paeth = paeth_predictor(left, up, up_left)
+                recon[x] = (recon[x] + paeth) & 0xFF
+        else:
+            raise ValueError(f"Unknown filter type: {filter_type}")
+        result.extend(recon)
+    return bytes(result)
 
-    with open(filename, 'rb') as png_file:
-        png_file.read(8)  # skip the PNG signature
-        
-        while True:
-            length_bytes = png_file.read(4)  # read the next 4 bytes to get the length of the chunk
-            if not length_bytes:
-                break
-            
-            length = int.from_bytes(length_bytes, 'big')
-            chunk_type = png_file.read(4).decode('ascii')
-            chunk_data = png_file.read(length)
-            png_file.read(4)  # CRC
-            
-            if chunk_type == 'IHDR':
-                width = int.from_bytes(chunk_data[0:4], 'big')
-                height = int.from_bytes(chunk_data[4:8], 'big')
-                print(f"Image dimensions: {width}x{height}") 
-            elif chunk_type == 'IDAT':
-                idat_data += chunk_data  # Append IDAT data
-                print(f'Found IDAT chunk of length {length}')
-    
-    if width is None or height is None:
-        raise ValueError("IHDR chunk not found or dimensions not available.")
+def filter_scanlines(raw_data, width, height, bpp=3):
+    stride = width * bpp
+    filtered = bytearray()
+    for y in range(height):
+        scanline = raw_data[y*stride:(y+1)*stride]
+        # Use filter type 0 (None) for simplicity
+        filtered.append(0)
+        filtered.extend(scanline)
+    return bytes(filtered)
 
-    return width, height, idat_data
-
-
-def decompress_idat_data(idat_data):
-    return zlib.decompress(idat_data)
-
-def embed_message(pixels, message):
+def embed_message_in_raw_pixels(raw_pixels, message):
     random.seed(100)
-    message += '\0'  # null terminator
-    message_bits = ''.join(format(ord(c), '08b') for c in message)  # Converts each character to binary
-    
-    pixel_array = bytearray(pixels)
+    message += '\0'
+    message_bits = ''.join(format(ord(c), '08b') for c in message)
 
+    pixel_array = bytearray(raw_pixels)
     total_pixels = len(pixel_array)
-    indices = random.sample(range(total_pixels), len(message_bits))  # Randomly select pixel indices to modify
+    if len(message_bits) > total_pixels:
+        raise ValueError("Message too long to embed")
+
+    indices = random.sample(range(total_pixels), len(message_bits))
 
     for i, bit in enumerate(message_bits):
-        pixel_index = indices[i]
-        pixel_array[pixel_index] = (pixel_array[pixel_index] & ~1) | int(bit)  # Modify LSB of chosen pixels
-    
+        idx = indices[i]
+        pixel_array[idx] = (pixel_array[idx] & ~1) | int(bit)
     return bytes(pixel_array)
 
-# Calculate embedding capacity
-def calculate_embedding_capacity(width, height):
-    max_chars = (width * height * 3) // 8
-    print(f"The maximum number of characters you can embed is {max_chars} characters.")
-    return max_chars
+def save_png(filename, width, height, raw_pixels):
+    compressed = zlib.compress(filter_scanlines(raw_pixels, width, height, 3))
+    with open(filename, 'wb') as f:
+        f.write(b'\x89PNG\r\n\x1A\n')
 
-# Function to save modified pixel data back to a new PNG
-def save_png(filename, pixel_data, width, height):
-    compressed_data = zlib.compress(pixel_data)
-    new_idat_chunk = (
-        len(compressed_data).to_bytes(4, 'big') +
-        b'IDAT' +
-        compressed_data +
-        (zlib.crc32(b'IDAT' + compressed_data) & 0xffffffff).to_bytes(4, 'big')
-    )
-    
-    with open(filename, 'wb') as png_file:
-        png_file.write(b'\x89PNG\r\n\x1A\n')  # Write PNG signature
-        
-        # Write IHDR chunk
         ihdr_data = (
             width.to_bytes(4, 'big') +
             height.to_bytes(4, 'big') +
-            b'\x08' +  # Bit depth
-            b'\x02' +  # Color type (RGB)
-            b'\x00' +  # Compression method
-            b'\x00' +  # Filter method
-            b'\x00'    # Interlace method
+            b'\x08' +  # bit depth 8
+            b'\x02' +  # color type 2 = RGB
+            b'\x00' +  # compression method
+            b'\x00' +  # filter method
+            b'\x00'    # interlace method
         )
-        ihdr_length = len(ihdr_data).to_bytes(4, 'big')
-        ihdr_crc = zlib.crc32(b'IHDR' + ihdr_data) & 0xffffffff
-        
-        # Write IHDR chunk
-        png_file.write(ihdr_length)
-        png_file.write(b'IHDR')
-        png_file.write(ihdr_data)
-        png_file.write(ihdr_crc.to_bytes(4, 'big'))
+        f.write(len(ihdr_data).to_bytes(4, 'big'))
+        f.write(b'IHDR')
+        f.write(ihdr_data)
+        f.write(zlib.crc32(b'IHDR' + ihdr_data).to_bytes(4, 'big'))
 
-        # Write IDAT chunk
-        png_file.write(new_idat_chunk)
-        
-        # Write IEND chunk
-        png_file.write(b'\x00\x00\x00\x00IEND' + b'\xaeB\x82')
+        f.write(len(compressed).to_bytes(4, 'big'))
+        f.write(b'IDAT')
+        f.write(compressed)
+        f.write(zlib.crc32(b'IDAT' + compressed).to_bytes(4, 'big'))
 
-# Main function to embed a message into a PNG image
+        f.write(b'\x00\x00\x00\x00IEND')
+        f.write(b'\xaeB\x82')
+
 def main():
     input_filename = 'image.png'
-    output_filename = 'modified_image.png' 
-    secret_message = " "
+    output_filename = 'modified_image.png'
+    secret_message = 'test'
 
-    try:
-        read_png_signature(input_filename)
+    with open(input_filename, 'rb') as f:
+        f.read(8)  # skip signature
 
-        width, height, idat_chunks = extract_png_info(input_filename)
+        width = None
+        height = None
+        idat_data = b''
 
-        decompressed_pixels = decompress_idat_data(idat_chunks)
+        while True:
+            length_bytes = f.read(4)
+            if not length_bytes:
+                break
+            length = int.from_bytes(length_bytes, 'big')
+            chunk_type = f.read(4)
+            chunk_data = f.read(length)
+            f.read(4)  # CRC
 
-        embedded_pixels = embed_message(decompressed_pixels, secret_message)
+            if chunk_type == b'IHDR':
+                width = int.from_bytes(chunk_data[0:4], 'big')
+                height = int.from_bytes(chunk_data[4:8], 'big')
+            elif chunk_type == b'IDAT':
+                idat_data += chunk_data
 
-        save_png(output_filename, embedded_pixels, width, height)
+        if width is None or height is None:
+            raise ValueError("No IHDR chunk found")
 
-        calculate_embedding_capacity(width, height)
+        decompressed = zlib.decompress(idat_data)
+        raw_pixels = unfilter_scanlines(decompressed, width, height, 3)
+        embedded_pixels = embed_message_in_raw_pixels(raw_pixels, secret_message)
+        save_png(output_filename, width, height, embedded_pixels)
 
-        print(f"Message embedded successfully into {output_filename}.")
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
