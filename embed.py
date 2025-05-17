@@ -14,7 +14,6 @@ def paeth_predictor(a, b, c):
         return c
 
 def unfilter_scanlines(data, width, height, bpp=3):
-    # bpp = bytes per pixel (3 for RGB 8-bit)
     stride = width * bpp
     result = bytearray()
     i = 0
@@ -24,27 +23,22 @@ def unfilter_scanlines(data, width, height, bpp=3):
         scanline = data[i:i+stride] # extracts the filtered scanline pixel data
         i += stride
         recon = bytearray(scanline)
-        if filter_type == 0:
-            # None
+        if filter_type == 0: # None
             pass
-        elif filter_type == 1:
-            # Sub: reconstruct by adding previous bytes from same scanline.
+        elif filter_type == 1: # Sub: reconstruct by adding previous bytes from same scanline.
             for x in range(bpp, stride):
                 recon[x] = (recon[x] + recon[x - bpp]) & 0xFF
-        elif filter_type == 2:
-            # Up: add values from previous scanline at same positions.
+        elif filter_type == 2: # Up: add values from previous scanline at same positions.
             prev = result[-stride:] if len(result) >= stride else bytearray(stride)
             for x in range(stride):
                 recon[x] = (recon[x] + prev[x]) & 0xFF
-        elif filter_type == 3:
-            # Average: use average of left (same scanline) and up (previous scanline).
+        elif filter_type == 3: # Average: use average of left (same scanline) and up (previous scanline).
             prev = result[-stride:] if len(result) >= stride else bytearray(stride)
             for x in range(stride):
                 left = recon[x - bpp] if x >= bpp else 0
                 up = prev[x]
                 recon[x] = (recon[x] + ((left + up) >> 1)) & 0xFF
-        elif filter_type == 4:
-            # Paeth: use Paeth predictor to compute each byte.
+        elif filter_type == 4: # Paeth: use Paeth predictor to compute each byte.
             prev = result[-stride:] if len(result) >= stride else bytearray(stride)
             for x in range(stride):
                 left = recon[x - bpp] if x >= bpp else 0
@@ -62,26 +56,31 @@ def filter_scanlines(raw_data, width, height, bpp=3):
     filtered = bytearray()
     for y in range(height):
         scanline = raw_data[y*stride:(y+1)*stride]
-        # Use filter type 0 (None) for simplicity
-        filtered.append(0)
+        filtered.append(0)  # filter type 0 = None
         filtered.extend(scanline)
     return bytes(filtered)
 
-def embed_message_in_raw_pixels(raw_pixels, message):
+def embed_file_in_raw_pixels(raw_pixels, file_bytes):
     random.seed(100)
-    message += '\0'
-    message_bits = ''.join(format(ord(c), '08b') for c in message)
+    # prefix the file bytes with its length (4 bytes, big endian) so extraction knows how many bytes to read
+    file_length = len(file_bytes)
+    length_bytes = file_length.to_bytes(4, 'big')
+    data_to_embed = length_bytes + file_bytes
+
+    # Convert to bits
+    data_bits = ''.join(format(byte, '08b') for byte in data_to_embed)
 
     pixel_array = bytearray(raw_pixels)
     total_pixels = len(pixel_array)
-    if len(message_bits) > total_pixels:
-        raise ValueError("Message too long to embed")
+    if len(data_bits) > total_pixels:
+        raise ValueError("File too large to embed in image pixels.")
 
-    indices = random.sample(range(total_pixels), len(message_bits))
+    indices = random.sample(range(total_pixels), len(data_bits))
 
-    for i, bit in enumerate(message_bits):
+    for i, bit in enumerate(data_bits):
         idx = indices[i]
         pixel_array[idx] = (pixel_array[idx] & ~1) | int(bit)
+
     return bytes(pixel_array)
 
 def save_png(filename, width, height, raw_pixels):
@@ -114,10 +113,10 @@ def save_png(filename, width, height, raw_pixels):
 def main():
     input_filename = 'image.png'
     output_filename = 'modified_image.png'
-    secret_message = 'test'
+    file_to_embed = ''  # file to embed
 
     with open(input_filename, 'rb') as f:
-        f.read(8)  # skip signature
+        f.read(8)  # skip PNG signature
 
         width = None
         height = None
@@ -143,8 +142,12 @@ def main():
 
         decompressed = zlib.decompress(idat_data)
         raw_pixels = unfilter_scanlines(decompressed, width, height, 3)
-        embedded_pixels = embed_message_in_raw_pixels(raw_pixels, secret_message)
-        save_png(output_filename, width, height, embedded_pixels)
+
+    with open(file_to_embed, 'rb') as f:
+        file_bytes = f.read()
+
+    embedded_pixels = embed_file_in_raw_pixels(raw_pixels, file_bytes)
+    save_png(output_filename, width, height, embedded_pixels)
 
 if __name__ == '__main__':
     main()
