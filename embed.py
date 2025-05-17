@@ -113,7 +113,7 @@ def save_png(filename, width, height, raw_pixels):
 def main():
     input_filename = 'image.png'
     output_filename = 'modified_image.png'
-    file_to_embed = ''  # file to embed
+    file_to_embed = '' 
 
     with open(input_filename, 'rb') as f:
         f.read(8)  # skip PNG signature
