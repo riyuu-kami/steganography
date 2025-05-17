@@ -13,7 +13,7 @@ def extract_png_info(filename):
     idat_data = b''
 
     with open(filename, 'rb') as png_file:
-        png_file.read(8)  # skip the PNG signature
+        png_file.read(8)  # skip PNG signature
 
         while True:
             length_bytes = png_file.read(4)
@@ -37,38 +37,50 @@ def extract_png_info(filename):
 def decompress_idat_data(idat_data):
     return zlib.decompress(idat_data)
 
-def extract_message_pixels(raw_pixels, message_length):
+def extract_embedded_file(raw_pixels):
     random.seed(100)
     total_pixels = len(raw_pixels)
-    indices = random.sample(range(total_pixels), message_length * 8)
-    message_bits = ''
 
-    for idx in indices:
-        message_bits += str(raw_pixels[idx] & 1)
+    # extract length bits indices:
+    length_indices = random.sample(range(total_pixels), 32)
+    length_bits = [str(raw_pixels[idx] & 1) for idx in length_indices]
+    file_length = int(''.join(length_bits), 2)
+    
+    random.seed(100) # resetting seed
+    all_indices = random.sample(range(total_pixels), 32 + file_length * 8)
 
-    message = ''
-    for i in range(0, len(message_bits), 8):
-        byte = message_bits[i:i+8]
-        if len(byte) < 8:
+    # extract bits for file bytes (skip first 32 used for length)
+    data_bits = []
+    for idx in all_indices[32:]:
+        data_bits.append(str(raw_pixels[idx] & 1))
+
+    # convert bits to bytes
+    file_bytes = bytearray()
+    for i in range(0, len(data_bits), 8):
+        byte_bits = data_bits[i:i+8]
+        if len(byte_bits) < 8:
             break
-        char = chr(int(byte, 2))
-        if char == '\0':
-            break
-        message += char
+        file_bytes.append(int(''.join(byte_bits), 2))
 
-    return message
+    return bytes(file_bytes)
+
 
 def main():
     input_filename = 'modified_image.png'
-    estimated_message_length = 1500  # Adjust if needed
+    output_file = 'extracted.txt'
 
     try:
         read_png_signature(input_filename)
         width, height, idat_chunks = extract_png_info(input_filename)
         decompressed_data = decompress_idat_data(idat_chunks)
         raw_pixels = unfilter_scanlines(decompressed_data, width, height, 3)
-        extracted_message = extract_message_pixels(raw_pixels, estimated_message_length)
-        print(f"Extracted message: {extracted_message}")
+
+        extracted_file_bytes = extract_embedded_file(raw_pixels)
+
+        with open(output_file, 'wb') as f:
+            f.write(extracted_file_bytes)
+
+        print(f"Extracted file saved as: {output_file}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
