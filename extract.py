@@ -67,7 +67,7 @@ def extract_embedded_file(raw_pixels):
 
 def main():
     input_filename = 'modified_image.png'
-    output_file = 'extracted.txt'
+    output_file = ''
 
     try:
         read_png_signature(input_filename)
